@@ -224,6 +224,7 @@ class _HomeScreenState extends State<HomeScreen> {
       backgroundColor: Colors.black,
       body: SafeArea(
         child: NativeDeviceOrientationReader(
+          useSensor: true,
           builder: (context) {
             NativeDeviceOrientation orientation = NativeDeviceOrientationReader.orientation(context);
             return _buildPortraitLayout(context, orientation);
@@ -241,7 +242,7 @@ class _HomeScreenState extends State<HomeScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: _buildTopBarIcons(),
+            children: _buildTopBarIcons(orientation),
           ),
         ),
         // Camera Preview
@@ -257,7 +258,7 @@ class _HomeScreenState extends State<HomeScreen> {
           padding: const EdgeInsets.symmetric(vertical: 8),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: _buildModeSelectorItems(),
+            children: _buildModeSelectorItems(orientation),
           ),
         ),
         // Bottom Controls
@@ -266,28 +267,28 @@ class _HomeScreenState extends State<HomeScreen> {
           padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: _buildBottomControlItems(),
+            children: _buildBottomControlItems(orientation),
           ),
         ),
       ],
     );
   }
 
-  List<Widget> _buildTopBarIcons() {
+  List<Widget> _buildTopBarIcons(NativeDeviceOrientation orientation) {
     return [
-      const Icon(Icons.camera, color: Colors.white, size: 28),
-      const Icon(Icons.flash_off, color: Colors.white, size: 28),
-      const Icon(Icons.note_add_outlined, color: Colors.white, size: 28),
-      const Icon(Icons.location_on_outlined, color: Colors.white, size: 28),
+      _rotateIcon(orientation, const Icon(Icons.camera, color: Colors.white, size: 28)),
+      _rotateIcon(orientation, const Icon(Icons.flash_off, color: Colors.white, size: 28)),
+      _rotateIcon(orientation, const Icon(Icons.note_add_outlined, color: Colors.white, size: 28)),
+      _rotateIcon(orientation, const Icon(Icons.location_on_outlined, color: Colors.white, size: 28)),
       GestureDetector(
         onTap: _switchCamera,
-        child: const Icon(Icons.flip_camera_ios_outlined, color: Colors.white, size: 28),
+        child: _rotateIcon(orientation, const Icon(Icons.flip_camera_ios_outlined, color: Colors.white, size: 28)),
       ),
-      const Icon(Icons.settings_outlined, color: Colors.white, size: 28),
+      _rotateIcon(orientation, const Icon(Icons.settings_outlined, color: Colors.white, size: 28)),
     ];
   }
 
-  List<Widget> _buildModeSelectorItems() {
+  List<Widget> _buildModeSelectorItems(NativeDeviceOrientation orientation) {
     return [
       GestureDetector(
         onTap: () {
@@ -331,7 +332,7 @@ class _HomeScreenState extends State<HomeScreen> {
     ];
   }
 
-  List<Widget> _buildBottomControlItems() {
+  List<Widget> _buildBottomControlItems(NativeDeviceOrientation orientation) {
     return [
       // Preview
       GestureDetector(
@@ -348,7 +349,7 @@ class _HomeScreenState extends State<HomeScreen> {
             )));
           }
         },
-        child: Column(
+        child: _rotateIcon(orientation, Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
@@ -372,7 +373,7 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(height: 4),
             const Text('Preview', style: TextStyle(color: Colors.white, fontSize: 12)),
           ],
-        ),
+        )),
       ),
       // Locations
       GestureDetector(
@@ -386,14 +387,14 @@ class _HomeScreenState extends State<HomeScreen> {
             )
           ));
         },
-        child: const Column(
+        child: _rotateIcon(orientation, const Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(Icons.location_on_outlined, color: Colors.white, size: 32),
             SizedBox(height: 4),
             Text('Locations', style: TextStyle(color: Colors.white, fontSize: 12)),
           ],
-        ),
+        )),
       ),
       // Shutter Button
       GestureDetector(
@@ -420,16 +421,16 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
       // Storage
-      const Column(
+      _rotateIcon(orientation, const Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(Icons.folder_outlined, color: Colors.white, size: 32),
           SizedBox(height: 4),
           Text('Storage', style: TextStyle(color: Colors.white, fontSize: 12)),
         ],
-      ),
+      )),
       // Template
-      Column(
+      _rotateIcon(orientation, Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Stack(
@@ -460,18 +461,45 @@ class _HomeScreenState extends State<HomeScreen> {
           const SizedBox(height: 4),
           const Text('Template', style: TextStyle(color: Colors.white, fontSize: 12)),
         ],
-      ),
+      )),
     ];
+  }
+
+  double _angleFor(NativeDeviceOrientation orientation) {
+    switch (orientation) {
+      case NativeDeviceOrientation.landscapeLeft:
+        return 90 * 3.1415926535 / 180;
+      case NativeDeviceOrientation.landscapeRight:
+        return -90 * 3.1415926535 / 180;
+      case NativeDeviceOrientation.portraitDown:
+        return 3.1415926535; // 180°
+      case NativeDeviceOrientation.portraitUp:
+      default:
+        return 0;
+    }
+  }
+
+  Widget _rotateIcon(NativeDeviceOrientation orientation, Widget child) {
+    final angle = _angleFor(orientation);
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: angle),
+      duration: const Duration(milliseconds: 480),
+      curve: Curves.easeOutCubic,
+      builder: (context, value, child) {
+        return Transform.rotate(angle: value, child: child!);
+      },
+      child: child,
+    );
   }
 
   Widget _rotateForOrientation({required NativeDeviceOrientation orientation, required Widget child}) {
     int quarterTurns = 0;
     switch (orientation) {
       case NativeDeviceOrientation.landscapeLeft:
-        quarterTurns = 1;
+        quarterTurns = 3;
         break;
       case NativeDeviceOrientation.landscapeRight:
-        quarterTurns = 3;
+        quarterTurns = 1;
         break;
       case NativeDeviceOrientation.portraitDown:
         quarterTurns = 2;
@@ -519,8 +547,10 @@ class _HomeScreenState extends State<HomeScreen> {
             }
           });
         },
-        child: Stack(
-          fit: StackFit.expand,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return Stack(
+              fit: StackFit.expand,
           children: [
             // Camera Preview
             if (_cameraController != null && _cameraController!.value.isInitialized)
@@ -587,9 +617,9 @@ class _HomeScreenState extends State<HomeScreen> {
               bottom: 160,
               left: 0,
               right: 0,
-              child: _rotateForOrientation(
-                orientation: orientation,
-                child: Row(
+              child: _rotateIcon(
+                orientation,
+                Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     GestureDetector(
@@ -621,15 +651,22 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
 
             // Geotag Overlay
-            Positioned(
+            AnimatedPositioned(
+              duration: const Duration(milliseconds: 480),
+              curve: Curves.easeOutCubic,
               left: 16,
-              bottom: 40,
+              bottom: (orientation == NativeDeviceOrientation.landscapeLeft || 
+                       orientation == NativeDeviceOrientation.landscapeRight)
+                  ? (constraints.maxHeight - (MediaQuery.of(context).size.width - 32)) / 2
+                  : 40,
               child: _rotateForOrientation(
                 orientation: orientation,
                 child: geotagOverlay,
               ),
             ),
           ],
+            );
+          },
         ),
       ),
     );
