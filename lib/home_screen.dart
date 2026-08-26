@@ -496,10 +496,10 @@ class _HomeScreenState extends State<HomeScreen> {
     int quarterTurns = 0;
     switch (orientation) {
       case NativeDeviceOrientation.landscapeLeft:
-        quarterTurns = 3;
+        quarterTurns = 1;
         break;
       case NativeDeviceOrientation.landscapeRight:
-        quarterTurns = 1;
+        quarterTurns = 3;
         break;
       case NativeDeviceOrientation.portraitDown:
         quarterTurns = 2;
