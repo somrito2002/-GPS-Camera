@@ -42,6 +42,9 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isVideoMode = false;
   bool _isRecording = false;
   double _currentZoom = 1.0;
+  FlashMode _flashMode = FlashMode.off;
+  bool _isSwitchingCamera = false;
+  int _cameraSwitchGeneration = 0;
 
   @override
   void initState() {
@@ -60,28 +63,53 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _initCamera() async {
     if (cameras.isEmpty) return;
-    if (_cameraController != null) {
-      await _cameraController!.dispose();
-    }
-    _cameraController = CameraController(
-      cameras[_selectedCameraIndex], 
-      ResolutionPreset.high,
-      enableAudio: true,
-    );
+    
+    final int generation = ++_cameraSwitchGeneration;
+    
     try {
-      await _cameraController!.initialize();
-      if (mounted) setState(() {});
+      final oldController = _cameraController;
+      if (mounted) setState(() { _cameraController = null; });
+      if (oldController != null) await oldController.dispose();
+
+      final newController = CameraController(
+        cameras[_selectedCameraIndex], 
+        ResolutionPreset.high,
+        enableAudio: true,
+      );
+
+      await newController.initialize();
+      await newController.setFlashMode(_flashMode);
+
+      if (generation != _cameraSwitchGeneration || !mounted) {
+        await newController.dispose();
+        return;
+      }
+
+      setState(() { _cameraController = newController; });
     } catch (e) {
       debugPrint("Camera Error: $e");
     }
   }
 
-  void _switchCamera() {
-    if (cameras.isEmpty) return;
+  Future<void> _switchCamera() async {
+    if (cameras.isEmpty || _isSwitchingCamera) return;
+    _isSwitchingCamera = true;
+    try {
+      setState(() {
+        _selectedCameraIndex = (_selectedCameraIndex + 1) % cameras.length;
+      });
+      await _initCamera();
+    } finally {
+      _isSwitchingCamera = false;
+    }
+  }
+
+  void _toggleFlash() {
+    if (_cameraController == null || !_cameraController!.value.isInitialized) return;
     setState(() {
-      _selectedCameraIndex = (_selectedCameraIndex + 1) % cameras.length;
+      _flashMode = _flashMode == FlashMode.off ? FlashMode.torch : FlashMode.off;
+      _cameraController!.setFlashMode(_flashMode);
     });
-    _initCamera();
   }
 
   Future<void> _initLocation() async {
@@ -277,7 +305,10 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Widget> _buildTopBarIcons(NativeDeviceOrientation orientation) {
     return [
       _rotateIcon(orientation, const Icon(Icons.camera, color: Colors.white, size: 28)),
-      _rotateIcon(orientation, const Icon(Icons.flash_off, color: Colors.white, size: 28)),
+      GestureDetector(
+        onTap: _toggleFlash,
+        child: _rotateIcon(orientation, Icon(_flashMode == FlashMode.off ? Icons.flash_off : Icons.flash_on, color: Colors.white, size: 28)),
+      ),
       _rotateIcon(orientation, const Icon(Icons.note_add_outlined, color: Colors.white, size: 28)),
       _rotateIcon(orientation, const Icon(Icons.location_on_outlined, color: Colors.white, size: 28)),
       GestureDetector(
@@ -570,7 +601,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       )
                     else
-                      const Center(child: CircularProgressIndicator(color: Colors.white)),
+                      Container(color: Colors.black, child: const Center(child: CircularProgressIndicator(color: Colors.white))),
 
                     // Geotag Overlay
                     AnimatedPositioned(
