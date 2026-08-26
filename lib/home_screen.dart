@@ -5,7 +5,11 @@ import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:intl/intl.dart';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:gal/gal.dart';
+import 'package:screenshot/screenshot.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'video_preview_screen.dart';
@@ -20,6 +24,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  final ScreenshotController _screenshotController = ScreenshotController();
   double _brightnessValue = 0.5;
   bool _showBrightnessSlider = false;
   Timer? _sliderTimer;
@@ -154,17 +159,9 @@ class _HomeScreenState extends State<HomeScreen> {
               _isRecording = false;
               _lastCapturedFile = file; 
             });
-            try {
-              if (!await Gal.hasAccess(toAlbum: true)) {
-                await Gal.requestAccess(toAlbum: true);
-              }
-              await Gal.putVideo(file.path);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Video saved to Gallery!'), backgroundColor: Colors.green),
-              );
-            } catch (e) {
-              debugPrint("Gal video error: $e");
-            }
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Video captured!'), backgroundColor: Colors.green),
+            );
           }
         } catch (e) {
           debugPrint("Stop video error: $e");
@@ -182,21 +179,20 @@ class _HomeScreenState extends State<HomeScreen> {
     } else {
       if (_cameraController!.value.isTakingPicture) return;
       try {
-        XFile file = await _cameraController!.takePicture();
-        if (mounted) {
-          setState(() {
-            _lastCapturedFile = file;
-          });
-          try {
-            if (!await Gal.hasAccess(toAlbum: true)) {
-              await Gal.requestAccess(toAlbum: true);
-            }
-            await Gal.putImage(file.path);
+        Uint8List? imageBytes = await _screenshotController.capture(delay: const Duration(milliseconds: 10));
+        
+        if (imageBytes != null) {
+          final directory = await getTemporaryDirectory();
+          final imagePath = await File('${directory.path}/image_${DateTime.now().millisecondsSinceEpoch}.png').create();
+          await imagePath.writeAsBytes(imageBytes);
+
+          if (mounted) {
+            setState(() {
+              _lastCapturedFile = XFile(imagePath.path);
+            });
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Photo saved to Gallery!'), backgroundColor: Colors.green, duration: Duration(seconds: 2)),
+              const SnackBar(content: Text('Photo captured!'), backgroundColor: Colors.green, duration: Duration(seconds: 2)),
             );
-          } catch (e) {
-            debugPrint("Gal image error: $e");
           }
         }
       } catch (e) {
@@ -241,7 +237,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
             // Camera Preview Area (Expanded)
             Expanded(
-              child: GestureDetector(
+              child: Screenshot(
+                controller: _screenshotController,
+                child: GestureDetector(
                 onVerticalDragUpdate: (details) {
                   setState(() {
                     _showBrightnessSlider = true;
@@ -450,47 +448,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
 
-                    // Zoom Buttons
-                    Positioned(
-                      bottom: 140,
-                      left: 0,
-                      right: 0,
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          GestureDetector(
-                            onTap: () => _setZoom(1.0),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                              decoration: BoxDecoration(
-                                color: _currentZoom == 1.0 ? Colors.amber : Colors.black.withOpacity(0.6),
-                                borderRadius: const BorderRadius.only(
-                                  topLeft: Radius.circular(20),
-                                  bottomLeft: Radius.circular(20),
-                                ),
-                              ),
-                              child: Text('1x', style: TextStyle(color: _currentZoom == 1.0 ? Colors.black : Colors.white, fontWeight: FontWeight.bold)),
-                            ),
-                          ),
-                          GestureDetector(
-                            onTap: () => _setZoom(2.0),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                              decoration: BoxDecoration(
-                                color: _currentZoom == 2.0 ? Colors.amber : Colors.black.withOpacity(0.6),
-                                borderRadius: const BorderRadius.only(
-                                  topRight: Radius.circular(20),
-                                  bottomRight: Radius.circular(20),
-                                ),
-                              ),
-                              child: Text('2x', style: TextStyle(color: _currentZoom == 2.0 ? Colors.black : Colors.white, fontWeight: FontWeight.bold)),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
                   ],
                 ),
+              ),
               ),
             ),
 
@@ -501,7 +461,18 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
-                  const Text('SHARE PHOTO', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                  GestureDetector(
+                    onTap: () {
+                      if (_lastCapturedFile != null) {
+                        Share.shareXFiles([_lastCapturedFile!], text: 'Check out this photo!');
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Please take a photo first!'), backgroundColor: Colors.red),
+                        );
+                      }
+                    },
+                    child: const Text('SHARE PHOTO', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                  ),
                   GestureDetector(
                     onTap: () {
                       if (!_isRecording) setState(() => _isVideoMode = false);
