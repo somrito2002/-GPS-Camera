@@ -47,16 +47,43 @@ class ImagePreviewScreen extends StatelessWidget {
             IconButton(
               icon: const Icon(Icons.share_outlined, color: Colors.white),
               onPressed: () {
-                Share.shareXFiles([XFile(imagePath)]);
+                Share.shareXFiles([XFile(imagePath)], text: 'Captured with Meco GPS Camera');
               },
             ),
             IconButton(
               icon: const Icon(Icons.delete_outline, color: Colors.white),
-              onPressed: () {
-                if (file.existsSync()) {
-                  file.deleteSync();
+              onPressed: () async {
+                final bool? confirm = await showDialog<bool>(
+                  context: context,
+                  builder: (BuildContext context) {
+                    return AlertDialog(
+                      title: const Text('Delete Photo'),
+                      content: const Text('Are you sure you want to delete this photo?'),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.of(context).pop(false),
+                          child: const Text('Cancel'),
+                        ),
+                        TextButton(
+                          onPressed: () => Navigator.of(context).pop(true),
+                          child: const Text('Delete', style: TextStyle(color: Colors.red)),
+                        ),
+                      ],
+                    );
+                  },
+                );
+
+                if (confirm == true) {
+                  if (file.existsSync()) {
+                    file.deleteSync();
+                  }
+                  if (context.mounted) {
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Photo deleted')),
+                    );
+                  }
                 }
-                Navigator.pop(context);
               },
             ),
             IconButton(

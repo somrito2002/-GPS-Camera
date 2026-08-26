@@ -30,6 +30,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _showBrightnessSlider = false;
   Timer? _sliderTimer;
   Timer? _timeTimer;
+  StreamSubscription<Position>? _positionStreamSubscription;
 
   CameraController? _cameraController;
   
@@ -141,13 +142,20 @@ class _HomeScreenState extends State<HomeScreen> {
       Position position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high
       );
-      
-      if (mounted) {
-        setState(() {
-          _latLong = "Lat ${position.latitude.toStringAsFixed(6)}° Long ${position.longitude.toStringAsFixed(6)}°";
-          _currentLatLng = LatLng(position.latitude, position.longitude);
-        });
-      }
+      await _updateLocationInfo(position);
+    } catch (e) {
+      debugPrint("Initial Location Error: $e");
+    }
+
+    _positionStreamSubscription = Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 5, // Update every 5 meters
+      )
+    ).listen((Position position) {
+      _updateLocationInfo(position);
+    });
+  }
 
   String _getCountryFlag(String countryCode) {
     if (countryCode.length != 2) return '';
@@ -156,6 +164,15 @@ class _HomeScreenState extends State<HomeScreen> {
     return String.fromCharCode(firstLetter) + String.fromCharCode(secondLetter);
   }
 
+  Future<void> _updateLocationInfo(Position position) async {
+    if (mounted) {
+      setState(() {
+        _latLong = "Lat ${position.latitude.toStringAsFixed(6)}° Long ${position.longitude.toStringAsFixed(6)}°";
+        _currentLatLng = LatLng(position.latitude, position.longitude);
+      });
+    }
+
+    try {
       List<Placemark> placemarks = await Geocoding().placemarkFromCoordinates(position.latitude, position.longitude);
       if (placemarks.isNotEmpty) {
         Placemark place = placemarks.first;
@@ -169,7 +186,7 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       }
     } catch (e) {
-      debugPrint("Location Error: $e");
+      debugPrint("Geocoding Error: $e");
     }
   }
 
@@ -241,6 +258,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    _positionStreamSubscription?.cancel();
     _sliderTimer?.cancel();
     _timeTimer?.cancel();
     _cameraController?.dispose();
@@ -746,6 +764,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(8),
                     child: _currentLatLng != null ? FlutterMap(
+                      key: ValueKey(_currentLatLng),
                       options: MapOptions(
                         initialCenter: _currentLatLng!,
                         initialZoom: 15.0,
