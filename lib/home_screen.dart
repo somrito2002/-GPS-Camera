@@ -286,17 +286,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     else
                       const Center(child: CircularProgressIndicator(color: Colors.white)),
 
-                    // Mock Crosshair
-                    Center(
-                      child: Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 1.5),
-                        ),
-                      ),
-                    ),
 
                     // Right side slider
                     Positioned(
@@ -464,7 +453,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   GestureDetector(
                     onTap: () {
                       if (_lastCapturedFile != null) {
-                        Share.shareXFiles([_lastCapturedFile!], text: 'Check out this photo!');
+                        Share.shareXFiles([_lastCapturedFile!]);
                       } else {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(content: Text('Please take a photo first!'), backgroundColor: Colors.red),
