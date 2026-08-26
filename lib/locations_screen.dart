@@ -69,7 +69,7 @@ class LocationsScreen extends StatelessWidget {
                       ),
                       children: [
                         TileLayer(
-                          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                          urlTemplate: 'https://mt0.google.com/vt/lyrs=y&hl=en&x={x}&y={y}&z={z}',
                           userAgentPackageName: 'com.example.geotag',
                         ),
                         MarkerLayer(
