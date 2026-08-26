@@ -150,7 +150,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _positionStreamSubscription = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.high,
-        distanceFilter: 5, // Update every 5 meters
+        distanceFilter: 0, // Update continuously on any minimal movement
       )
     ).listen((Position position) {
       _updateLocationInfo(position);
