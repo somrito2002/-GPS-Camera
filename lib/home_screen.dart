@@ -6,6 +6,8 @@ import 'package:geocoding/geocoding.dart';
 import 'package:intl/intl.dart';
 import 'dart:io';
 import 'package:gal/gal.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import 'video_preview_screen.dart';
 import 'locations_screen.dart';
 import 'main.dart'; // Access 'cameras' global
@@ -29,6 +31,7 @@ class _HomeScreenState extends State<HomeScreen> {
   String _addressLine2 = "";
   String _latLong = "Lat -- Long --";
   String _currentTime = "";
+  LatLng? _currentLatLng;
   XFile? _lastCapturedFile;
   int _selectedCameraIndex = 0;
   bool _isVideoMode = false;
@@ -108,6 +111,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (mounted) {
         setState(() {
           _latLong = "Lat ${position.latitude.toStringAsFixed(6)}° Long ${position.longitude.toStringAsFixed(6)}°";
+          _currentLatLng = LatLng(position.latitude, position.longitude);
         });
       }
 
@@ -367,7 +371,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   child: const Icon(Icons.camera_alt, size: 8, color: Colors.black),
                                 ),
                                 const SizedBox(width: 4),
-                                const Text('GPS Map Camera', style: TextStyle(color: Colors.white, fontSize: 10)),
+                                const Text('Meco GPS Camera', style: TextStyle(color: Colors.white, fontSize: 10)),
                               ],
                             ),
                             const SizedBox(height: 4),
@@ -382,8 +386,31 @@ class _HomeScreenState extends State<HomeScreen> {
                                     color: Colors.grey[800],
                                     borderRadius: BorderRadius.circular(8),
                                   ),
-                                  child: const Center(
-                                    child: Text('Google', style: TextStyle(color: Colors.white54, fontWeight: FontWeight.bold)),
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: _currentLatLng != null ? FlutterMap(
+                                      options: MapOptions(
+                                        initialCenter: _currentLatLng!,
+                                        initialZoom: 15.0,
+                                        interactionOptions: const InteractionOptions(flags: InteractiveFlag.none),
+                                      ),
+                                      children: [
+                                        TileLayer(
+                                          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                                          userAgentPackageName: 'com.example.geotag',
+                                        ),
+                                        MarkerLayer(
+                                          markers: [
+                                            Marker(
+                                              point: _currentLatLng!,
+                                              child: const Icon(Icons.location_on, color: Colors.red, size: 30),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ) : const Center(
+                                      child: Text('Google', style: TextStyle(color: Colors.white54, fontWeight: FontWeight.bold)),
+                                    ),
                                   ),
                                 ),
                                 const SizedBox(width: 12),
@@ -562,6 +589,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           addressLine1: _addressLine1,
                           addressLine2: _addressLine2,
                           latLong: _latLong,
+                          currentLatLng: _currentLatLng,
                         )
                       ));
                     },

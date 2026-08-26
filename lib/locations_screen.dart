@@ -1,15 +1,20 @@
 import 'package:flutter/material.dart';
 
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
+
 class LocationsScreen extends StatelessWidget {
   final String addressLine1;
   final String addressLine2;
   final String latLong;
+  final LatLng? currentLatLng;
 
   const LocationsScreen({
     super.key,
     required this.addressLine1,
     required this.addressLine2,
     required this.latLong,
+    this.currentLatLng,
   });
 
   @override
@@ -54,15 +59,38 @@ class LocationsScreen extends StatelessWidget {
                     color: cardColor,
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: const Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      Center(child: Text('Google', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold, fontSize: 11))),
-                      Padding(
-                        padding: EdgeInsets.only(bottom: 12.0),
-                        child: Icon(Icons.location_on, color: Colors.red, size: 24),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: currentLatLng != null ? FlutterMap(
+                      options: MapOptions(
+                        initialCenter: currentLatLng!,
+                        initialZoom: 15.0,
+                        interactionOptions: const InteractionOptions(flags: InteractiveFlag.none),
                       ),
-                    ],
+                      children: [
+                        TileLayer(
+                          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                          userAgentPackageName: 'com.example.geotag',
+                        ),
+                        MarkerLayer(
+                          markers: [
+                            Marker(
+                              point: currentLatLng!,
+                              child: const Icon(Icons.location_on, color: Colors.red, size: 30),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ) : const Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        Center(child: Text('Google', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold, fontSize: 11))),
+                        Padding(
+                          padding: EdgeInsets.only(bottom: 12.0),
+                          child: Icon(Icons.location_on, color: Colors.red, size: 24),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
                 const SizedBox(width: 12),
