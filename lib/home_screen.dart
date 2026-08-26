@@ -1,19 +1,19 @@
 import 'package:flutter/material.dart';
-import 'dart:async';
 import 'package:camera/camera.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
+import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
-import 'package:gal/gal.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:screenshot/screenshot.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:flutter_map/flutter_map.dart';
-import 'package:latlong2/latlong.dart';
-import 'video_preview_screen.dart';
 import 'locations_screen.dart';
+import 'video_preview_screen.dart';
+import 'package:native_device_orientation/native_device_orientation.dart';
 import 'main.dart'; // Access 'cameras' global
 
 class HomeScreen extends StatefulWidget {
@@ -120,13 +120,22 @@ class _HomeScreenState extends State<HomeScreen> {
         });
       }
 
+  String _getCountryFlag(String countryCode) {
+    if (countryCode.length != 2) return '';
+    final int firstLetter = countryCode.toUpperCase().codeUnitAt(0) - 0x41 + 0x1F1E6;
+    final int secondLetter = countryCode.toUpperCase().codeUnitAt(1) - 0x41 + 0x1F1E6;
+    return String.fromCharCode(firstLetter) + String.fromCharCode(secondLetter);
+  }
+
       List<Placemark> placemarks = await Geocoding().placemarkFromCoordinates(position.latitude, position.longitude);
       if (placemarks.isNotEmpty) {
         Placemark place = placemarks.first;
         if (mounted) {
           setState(() {
-            _addressLine1 = "${place.subLocality ?? place.locality ?? ''}, ${place.administrativeArea ?? ''}, ${place.country ?? ''}".trim().replaceAll(RegExp(r'^,|,$'), '');
-            _addressLine2 = "${place.street ?? ''} ${place.subLocality ?? ''}, ${place.locality ?? ''}, ${place.administrativeArea ?? ''} ${place.postalCode ?? ''}, ${place.country ?? ''}".replaceAll(RegExp(r'\s+'), ' ').trim();
+            String flag = _getCountryFlag(place.isoCountryCode ?? '');
+            String countryWithFlag = "${place.country ?? ''} $flag".trim();
+            _addressLine1 = "${place.subLocality ?? place.locality ?? ''}, ${place.administrativeArea ?? ''}, $countryWithFlag".trim().replaceAll(RegExp(r'^,|,$'), '');
+            _addressLine2 = "${place.street ?? ''} ${place.subLocality ?? ''}, ${place.locality ?? ''}, ${place.administrativeArea ?? ''} ${place.postalCode ?? ''}, $countryWithFlag".replaceAll(RegExp(r'\s+'), ' ').trim();
           });
         }
       }
@@ -214,426 +223,518 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       backgroundColor: Colors.black,
       body: SafeArea(
+        child: NativeDeviceOrientationReader(
+          builder: (context) {
+            NativeDeviceOrientation orientation = NativeDeviceOrientationReader.orientation(context);
+            return _buildPortraitLayout(context, orientation);
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPortraitLayout(BuildContext context, NativeDeviceOrientation orientation) {
+    return Column(
+      children: [
+        // Top Bar
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: _buildTopBarIcons(),
+          ),
+        ),
+        // Camera Preview
+        Expanded(
+          child: _buildCameraPreviewStack(
+            orientation: orientation,
+            geotagOverlay: _buildGeotagOverlay(),
+          ),
+        ),
+        // Mode Selector
+        Container(
+          color: Colors.black,
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: _buildModeSelectorItems(),
+          ),
+        ),
+        // Bottom Controls
+        Container(
+          color: Colors.black,
+          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: _buildBottomControlItems(),
+          ),
+        ),
+      ],
+    );
+  }
+
+  List<Widget> _buildTopBarIcons() {
+    return [
+      const Icon(Icons.camera, color: Colors.white, size: 28),
+      const Icon(Icons.flash_off, color: Colors.white, size: 28),
+      const Icon(Icons.note_add_outlined, color: Colors.white, size: 28),
+      const Icon(Icons.location_on_outlined, color: Colors.white, size: 28),
+      GestureDetector(
+        onTap: _switchCamera,
+        child: const Icon(Icons.flip_camera_ios_outlined, color: Colors.white, size: 28),
+      ),
+      const Icon(Icons.settings_outlined, color: Colors.white, size: 28),
+    ];
+  }
+
+  List<Widget> _buildModeSelectorItems() {
+    return [
+      GestureDetector(
+        onTap: () {
+          if (_lastCapturedFile != null) {
+            Share.shareXFiles([_lastCapturedFile!]);
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Please take a photo first!'), backgroundColor: Colors.red),
+            );
+          }
+        },
+        child: const Text('SHARE PHOTO', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+      ),
+      GestureDetector(
+        onTap: () {
+          if (!_isRecording) setState(() => _isVideoMode = false);
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: !_isVideoMode ? Colors.amber : Colors.transparent,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Text('PHOTO', style: TextStyle(color: !_isVideoMode ? Colors.black : Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+        ),
+      ),
+      GestureDetector(
+        onTap: () {
+          if (!_isRecording) setState(() => _isVideoMode = true);
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: _isVideoMode ? Colors.amber : Colors.transparent,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Text('VIDEO', style: TextStyle(color: _isVideoMode ? Colors.black : Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+        ),
+      ),
+      const Text('REPORTS', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+    ];
+  }
+
+  List<Widget> _buildBottomControlItems() {
+    return [
+      // Preview
+      GestureDetector(
+        onTap: () {
+          if (_lastCapturedFile != null) {
+            if (_lastCapturedFile!.path.endsWith('.mp4')) {
+              Navigator.push(context, MaterialPageRoute(builder: (_) => VideoPreviewScreen(videoPath: _lastCapturedFile!.path)));
+              return;
+            }
+            Navigator.push(context, MaterialPageRoute(builder: (_) => Scaffold(
+              backgroundColor: Colors.black,
+              appBar: AppBar(backgroundColor: Colors.black, iconTheme: const IconThemeData(color: Colors.white)),
+              body: Center(child: Image.file(File(_lastCapturedFile!.path))),
+            )));
+          }
+        },
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            // Top Bar
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Icon(Icons.camera, color: Colors.white, size: 28),
-                  const Icon(Icons.flash_off, color: Colors.white, size: 28),
-                  const Icon(Icons.note_add_outlined, color: Colors.white, size: 28),
-                  const Icon(Icons.location_on_outlined, color: Colors.white, size: 28),
-                  GestureDetector(
-                    onTap: _switchCamera,
-                    child: const Icon(Icons.flip_camera_ios_outlined, color: Colors.white, size: 28),
-                  ),
-                  const Icon(Icons.settings_outlined, color: Colors.white, size: 28),
-                ],
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 1.5),
+                color: Colors.grey[800],
+                image: (_lastCapturedFile != null && !_lastCapturedFile!.path.endsWith('.mp4'))
+                  ? DecorationImage(
+                      image: FileImage(File(_lastCapturedFile!.path)),
+                      fit: BoxFit.cover,
+                    ) 
+                  : null,
+              ),
+              child: (_lastCapturedFile != null && _lastCapturedFile!.path.endsWith('.mp4'))
+                ? const Center(child: Icon(Icons.play_arrow, color: Colors.white, size: 20))
+                : null,
+            ),
+            const SizedBox(height: 4),
+            const Text('Preview', style: TextStyle(color: Colors.white, fontSize: 12)),
+          ],
+        ),
+      ),
+      // Locations
+      GestureDetector(
+        onTap: () {
+          Navigator.push(context, MaterialPageRoute(
+            builder: (_) => LocationsScreen(
+              addressLine1: _addressLine1,
+              addressLine2: _addressLine2,
+              latLong: _latLong,
+              currentLatLng: _currentLatLng,
+            )
+          ));
+        },
+        child: const Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.location_on_outlined, color: Colors.white, size: 32),
+            SizedBox(height: 4),
+            Text('Locations', style: TextStyle(color: Colors.white, fontSize: 12)),
+          ],
+        ),
+      ),
+      // Shutter Button
+      GestureDetector(
+        onTap: _handleShutter,
+        child: Container(
+          width: 70,
+          height: 70,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(color: (_isVideoMode && _isRecording) ? Colors.red : Colors.white, width: 4),
+          ),
+          child: Center(
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              width: (_isVideoMode && _isRecording) ? 28 : 54,
+              height: (_isVideoMode && _isRecording) ? 28 : 54,
+              decoration: BoxDecoration(
+                shape: (_isVideoMode && _isRecording) ? BoxShape.rectangle : BoxShape.circle,
+                borderRadius: (_isVideoMode && _isRecording) ? BorderRadius.circular(6) : null,
+                color: (_isVideoMode && _isRecording) ? Colors.red : Colors.white,
               ),
             ),
+          ),
+        ),
+      ),
+      // Storage
+      const Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.folder_outlined, color: Colors.white, size: 32),
+          SizedBox(height: 4),
+          Text('Storage', style: TextStyle(color: Colors.white, fontSize: 12)),
+        ],
+      ),
+      // Template
+      Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Stack(
+            children: [
+              const Icon(Icons.grid_view, color: Colors.white, size: 32),
+              Positioned(
+                right: 0,
+                top: 0,
+                child: Container(
+                  padding: const EdgeInsets.all(2),
+                  decoration: const BoxDecoration(
+                    color: Colors.red,
+                    shape: BoxShape.circle,
+                  ),
+                  constraints: const BoxConstraints(
+                    minWidth: 14,
+                    minHeight: 14,
+                  ),
+                  child: const Text(
+                    '1',
+                    style: TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              )
+            ],
+          ),
+          const SizedBox(height: 4),
+          const Text('Template', style: TextStyle(color: Colors.white, fontSize: 12)),
+        ],
+      ),
+    ];
+  }
 
-            // Camera Preview Area (Expanded)
-            Expanded(
-              child: Screenshot(
-                controller: _screenshotController,
-                child: GestureDetector(
-                onVerticalDragUpdate: (details) {
-                  setState(() {
-                    _showBrightnessSlider = true;
-                    // decrease because dragging up is negative delta, which should increase brightness
-                    _brightnessValue -= details.delta.dy / 300;
-                    _brightnessValue = _brightnessValue.clamp(0.0, 1.0);
-                    // Update camera exposure if supported
-                    if (_cameraController != null && _cameraController!.value.isInitialized) {
-                       // map 0.0-1.0 to min-max exposure
-                       _cameraController!.getMinExposureOffset().then((min) {
-                         _cameraController!.getMaxExposureOffset().then((max) {
-                           double target = min + (max - min) * _brightnessValue;
-                           _cameraController!.setExposureOffset(target);
-                         });
-                       });
-                    }
-                  });
-                  
-                  _sliderTimer?.cancel();
-                  _sliderTimer = Timer(const Duration(seconds: 2), () {
-                    if (mounted) {
-                      setState(() => _showBrightnessSlider = false);
-                    }
-                  });
-                },
-                child: Stack(
-                  fit: StackFit.expand,
+  Widget _rotateForOrientation({required NativeDeviceOrientation orientation, required Widget child}) {
+    int quarterTurns = 0;
+    switch (orientation) {
+      case NativeDeviceOrientation.landscapeLeft:
+        quarterTurns = 1;
+        break;
+      case NativeDeviceOrientation.landscapeRight:
+        quarterTurns = 3;
+        break;
+      case NativeDeviceOrientation.portraitDown:
+        quarterTurns = 2;
+        break;
+      default:
+        quarterTurns = 0;
+    }
+    return RotatedBox(
+      quarterTurns: quarterTurns,
+      child: child,
+    );
+  }
+
+  Widget _buildCameraPreviewStack({required NativeDeviceOrientation orientation, required Widget geotagOverlay}) {
+    double previewWidth = 1;
+    double previewHeight = 1;
+    
+    if (_cameraController != null && _cameraController!.value.isInitialized) {
+      previewWidth = _cameraController!.value.previewSize?.height ?? 1;
+      previewHeight = _cameraController!.value.previewSize?.width ?? 1;
+    }
+
+    return Screenshot(
+      controller: _screenshotController,
+      child: GestureDetector(
+        onVerticalDragUpdate: (details) {
+          setState(() {
+            _showBrightnessSlider = true;
+            _brightnessValue -= details.delta.dy / 300;
+            _brightnessValue = _brightnessValue.clamp(0.0, 1.0);
+            if (_cameraController != null && _cameraController!.value.isInitialized) {
+               _cameraController!.getMinExposureOffset().then((min) {
+                 _cameraController!.getMaxExposureOffset().then((max) {
+                   double target = min + (max - min) * _brightnessValue;
+                   _cameraController!.setExposureOffset(target);
+                 });
+               });
+            }
+          });
+          
+          _sliderTimer?.cancel();
+          _sliderTimer = Timer(const Duration(seconds: 2), () {
+            if (mounted) {
+              setState(() => _showBrightnessSlider = false);
+            }
+          });
+        },
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            // Camera Preview
+            if (_cameraController != null && _cameraController!.value.isInitialized)
+              ClipRect(
+                child: OverflowBox(
+                  alignment: Alignment.center,
+                  child: FittedBox(
+                    fit: BoxFit.cover,
+                    child: SizedBox(
+                      width: previewWidth,
+                      height: previewHeight,
+                      child: CameraPreview(_cameraController!),
+                    ),
+                  ),
+                ),
+              )
+            else
+              const Center(child: CircularProgressIndicator(color: Colors.white)),
+
+            // Right side slider
+            Positioned(
+              right: 16,
+              top: 100,
+              bottom: 100,
+              child: AnimatedOpacity(
+                opacity: _showBrightnessSlider ? 1.0 : 0.0,
+                duration: const Duration(milliseconds: 300),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    // Camera Preview
-                    if (_cameraController != null && _cameraController!.value.isInitialized)
-                      ClipRect(
-                        child: OverflowBox(
-                          alignment: Alignment.center,
-                          child: FittedBox(
-                            fit: BoxFit.cover,
-                            child: SizedBox(
-                              width: _cameraController!.value.previewSize?.height ?? 1,
-                              height: _cameraController!.value.previewSize?.width ?? 1,
-                              child: CameraPreview(_cameraController!),
-                            ),
+                    Expanded(
+                      child: RotatedBox(
+                        quarterTurns: 3,
+                        child: SliderTheme(
+                          data: SliderThemeData(
+                            trackHeight: 2,
+                            activeTrackColor: Colors.amber,
+                            inactiveTrackColor: Colors.white,
+                            thumbColor: Colors.transparent,
+                            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 0),
+                            overlayShape: const RoundSliderOverlayShape(overlayRadius: 0),
+                          ),
+                          child: Slider(
+                            value: _brightnessValue,
+                            onChanged: (val) {},
                           ),
                         ),
-                      )
-                    else
-                      const Center(child: CircularProgressIndicator(color: Colors.white)),
-
-
-                    // Right side slider
-                    Positioned(
-                      right: 16,
-                      top: 100,
-                      bottom: 100,
-                      child: AnimatedOpacity(
-                        opacity: _showBrightnessSlider ? 1.0 : 0.0,
-                        duration: const Duration(milliseconds: 300),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Expanded(
-                              child: RotatedBox(
-                                quarterTurns: 3,
-                                child: SliderTheme(
-                                  data: SliderThemeData(
-                                    trackHeight: 2,
-                                    activeTrackColor: Colors.amber,
-                                    inactiveTrackColor: Colors.white,
-                                    thumbColor: Colors.transparent,
-                                    thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 0),
-                                    overlayShape: const RoundSliderOverlayShape(overlayRadius: 0),
-                                  ),
-                                  child: Slider(
-                                    value: _brightnessValue,
-                                    onChanged: (val) {
-                                      // slider UI can just read the value, drag controls it
-                                    },
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            const Icon(Icons.wb_sunny_outlined, color: Colors.white, size: 20),
-                            const SizedBox(height: 8),
-                            Text(
-                              (_brightnessValue * 100).toInt().toString(), 
-                              style: const TextStyle(color: Colors.white, fontSize: 16)
-                            ),
-                          ],
-                        ),
                       ),
                     ),
-
-                    // Map Info Overlay
-                    Positioned(
-                      left: 16,
-                      right: 16,
-                      bottom: 40,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.6),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        padding: const EdgeInsets.all(8),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Container(
-                                  width: 12,
-                                  height: 12,
-                                  decoration: const BoxDecoration(
-                                    color: Colors.white,
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: const Icon(Icons.camera_alt, size: 8, color: Colors.black),
-                                ),
-                                const SizedBox(width: 4),
-                                const Text('Meco GPS Camera', style: TextStyle(color: Colors.white, fontSize: 10)),
-                              ],
-                            ),
-                            const SizedBox(height: 4),
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                // Map Image Placeholder
-                                Container(
-                                  width: 80,
-                                  height: 80,
-                                  decoration: BoxDecoration(
-                                    color: Colors.grey[800],
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: ClipRRect(
-                                    borderRadius: BorderRadius.circular(8),
-                                    child: _currentLatLng != null ? FlutterMap(
-                                      options: MapOptions(
-                                        initialCenter: _currentLatLng!,
-                                        initialZoom: 15.0,
-                                        interactionOptions: const InteractionOptions(flags: InteractiveFlag.none),
-                                      ),
-                                      children: [
-                                        TileLayer(
-                                          urlTemplate: 'https://mt0.google.com/vt/lyrs=y&hl=en&x={x}&y={y}&z={z}',
-                                          userAgentPackageName: 'com.example.geotag',
-                                        ),
-                                        MarkerLayer(
-                                          markers: [
-                                            Marker(
-                                              point: _currentLatLng!,
-                                              child: const Icon(Icons.location_on, color: Colors.red, size: 30),
-                                            ),
-                                          ],
-                                        ),
-                                      ],
-                                    ) : const Center(
-                                      child: Text('Google', style: TextStyle(color: Colors.white54, fontWeight: FontWeight.bold)),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                // Address Info
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        _addressLine1,
-                                        style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        _addressLine2,
-                                        style: TextStyle(color: Colors.grey[400], fontSize: 11),
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      Text(
-                                        _latLong,
-                                        style: TextStyle(color: Colors.grey[400], fontSize: 11),
-                                      ),
-                                      Text(
-                                        _currentTime,
-                                        style: TextStyle(color: Colors.grey[400], fontSize: 11),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
+                    const SizedBox(height: 8),
+                    const Icon(Icons.wb_sunny_outlined, color: Colors.white, size: 20),
+                    const SizedBox(height: 8),
+                    Text(
+                      (_brightnessValue * 100).toInt().toString(), 
+                      style: const TextStyle(color: Colors.white, fontSize: 16)
                     ),
-
                   ],
                 ),
               ),
+            ),
+
+            // Zoom Controls
+            Positioned(
+              bottom: 160,
+              left: 0,
+              right: 0,
+              child: _rotateForOrientation(
+                orientation: orientation,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    GestureDetector(
+                      onTap: () => _setZoom(1.0),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: _currentZoom == 1.0 ? Colors.amber : Colors.black54,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text('1X', style: TextStyle(color: _currentZoom == 1.0 ? Colors.black : Colors.white, fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    GestureDetector(
+                      onTap: () => _setZoom(2.0),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: _currentZoom == 2.0 ? Colors.amber : Colors.black54,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text('2X', style: TextStyle(color: _currentZoom == 2.0 ? Colors.black : Colors.white, fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
 
-            // Tab Bar Area
-            Container(
-              color: Colors.black,
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  GestureDetector(
-                    onTap: () {
-                      if (_lastCapturedFile != null) {
-                        Share.shareXFiles([_lastCapturedFile!]);
-                      } else {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Please take a photo first!'), backgroundColor: Colors.red),
-                        );
-                      }
-                    },
-                    child: const Text('SHARE PHOTO', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
-                  ),
-                  GestureDetector(
-                    onTap: () {
-                      if (!_isRecording) setState(() => _isVideoMode = false);
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: !_isVideoMode ? Colors.amber : Colors.transparent,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text('PHOTO', style: TextStyle(color: !_isVideoMode ? Colors.black : Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
-                    ),
-                  ),
-                  GestureDetector(
-                    onTap: () {
-                      if (!_isRecording) setState(() => _isVideoMode = true);
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: _isVideoMode ? Colors.amber : Colors.transparent,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text('VIDEO', style: TextStyle(color: _isVideoMode ? Colors.black : Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
-                    ),
-                  ),
-                  const Text('REPORTS', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
-                ],
-              ),
-            ),
-
-            // Bottom Controls Area
-            Container(
-              color: Colors.black,
-              padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  // Preview
-                  GestureDetector(
-                    onTap: () {
-                      if (_lastCapturedFile != null) {
-                        if (_lastCapturedFile!.path.endsWith('.mp4')) {
-                          Navigator.push(context, MaterialPageRoute(builder: (_) => VideoPreviewScreen(videoPath: _lastCapturedFile!.path)));
-                          return;
-                        }
-                        Navigator.push(context, MaterialPageRoute(builder: (_) => Scaffold(
-                          backgroundColor: Colors.black,
-                          appBar: AppBar(backgroundColor: Colors.black, iconTheme: const IconThemeData(color: Colors.white)),
-                          body: Center(child: Image.file(File(_lastCapturedFile!.path))),
-                        )));
-                      }
-                    },
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 40,
-                          height: 40,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            border: Border.all(color: Colors.white, width: 1.5),
-                            color: Colors.grey[800],
-                            image: (_lastCapturedFile != null && !_lastCapturedFile!.path.endsWith('.mp4'))
-                              ? DecorationImage(
-                                  image: FileImage(File(_lastCapturedFile!.path)),
-                                  fit: BoxFit.cover,
-                                ) 
-                              : null,
-                          ),
-                          child: (_lastCapturedFile != null && _lastCapturedFile!.path.endsWith('.mp4'))
-                            ? const Center(child: Icon(Icons.play_arrow, color: Colors.white, size: 20))
-                            : null,
-                        ),
-                        const SizedBox(height: 4),
-                        const Text('Preview', style: TextStyle(color: Colors.white, fontSize: 12)),
-                      ],
-                    ),
-                  ),
-                  // Locations
-                  GestureDetector(
-                    onTap: () {
-                      Navigator.push(context, MaterialPageRoute(
-                        builder: (_) => LocationsScreen(
-                          addressLine1: _addressLine1,
-                          addressLine2: _addressLine2,
-                          latLong: _latLong,
-                          currentLatLng: _currentLatLng,
-                        )
-                      ));
-                    },
-                    child: const Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.location_on_outlined, color: Colors.white, size: 32),
-                        SizedBox(height: 4),
-                        Text('Locations', style: TextStyle(color: Colors.white, fontSize: 12)),
-                      ],
-                    ),
-                  ),
-                  // Shutter Button
-                  GestureDetector(
-                    onTap: _handleShutter,
-                    child: Container(
-                      width: 70,
-                      height: 70,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(color: (_isVideoMode && _isRecording) ? Colors.red : Colors.white, width: 4),
-                      ),
-                      child: Center(
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 200),
-                          width: (_isVideoMode && _isRecording) ? 28 : 54,
-                          height: (_isVideoMode && _isRecording) ? 28 : 54,
-                          decoration: BoxDecoration(
-                            shape: (_isVideoMode && _isRecording) ? BoxShape.rectangle : BoxShape.circle,
-                            borderRadius: (_isVideoMode && _isRecording) ? BorderRadius.circular(6) : null,
-                            color: (_isVideoMode && _isRecording) ? Colors.red : Colors.white,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  // Storage
-                  const Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.folder_outlined, color: Colors.white, size: 32),
-                      SizedBox(height: 4),
-                      Text('Storage', style: TextStyle(color: Colors.white, fontSize: 12)),
-                    ],
-                  ),
-                  // Template
-                  Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Stack(
-                        children: [
-                          const Icon(Icons.grid_view, color: Colors.white, size: 32),
-                          Positioned(
-                            right: 0,
-                            top: 0,
-                            child: Container(
-                              padding: const EdgeInsets.all(2),
-                              decoration: const BoxDecoration(
-                                color: Colors.red,
-                                shape: BoxShape.circle,
-                              ),
-                              constraints: const BoxConstraints(
-                                minWidth: 14,
-                                minHeight: 14,
-                              ),
-                              child: const Text(
-                                '1',
-                                style: TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold),
-                                textAlign: TextAlign.center,
-                              ),
-                            ),
-                          )
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      const Text('Template', style: TextStyle(color: Colors.white, fontSize: 12)),
-                    ],
-                  ),
-                ],
+            // Geotag Overlay
+            Positioned(
+              left: 16,
+              bottom: 40,
+              child: _rotateForOrientation(
+                orientation: orientation,
+                child: geotagOverlay,
               ),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildGeotagOverlay() {
+    return Container(
+      width: MediaQuery.of(context).size.width - 32,
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.6),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      padding: const EdgeInsets.all(8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 12,
+                  height: 12,
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.camera_alt, size: 8, color: Colors.black),
+                ),
+                const SizedBox(width: 4),
+                const Text('Meco GPS Camera', style: TextStyle(color: Colors.white, fontSize: 10)),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Map Image Placeholder
+                Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[800],
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: _currentLatLng != null ? FlutterMap(
+                      options: MapOptions(
+                        initialCenter: _currentLatLng!,
+                        initialZoom: 15.0,
+                        interactionOptions: const InteractionOptions(flags: InteractiveFlag.none),
+                      ),
+                      children: [
+                        TileLayer(
+                          urlTemplate: 'https://mt0.google.com/vt/lyrs=y&hl=en&x={x}&y={y}&z={z}',
+                          userAgentPackageName: 'com.example.geotag',
+                        ),
+                        MarkerLayer(
+                          markers: [
+                            Marker(
+                              point: _currentLatLng!,
+                              child: const Icon(Icons.location_on, color: Colors.red, size: 30),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ) : const Center(
+                      child: Text('Google', style: TextStyle(color: Colors.white54, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                // Address Info
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _addressLine1,
+                        style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        _addressLine2,
+                        style: TextStyle(color: Colors.grey[400], fontSize: 11),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        _latLong,
+                        style: TextStyle(color: Colors.grey[400], fontSize: 11),
+                      ),
+                      Text(
+                        _currentTime,
+                        style: TextStyle(color: Colors.grey[400], fontSize: 11),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
     );
   }
 }
