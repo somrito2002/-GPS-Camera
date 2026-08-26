@@ -521,153 +521,157 @@ class _HomeScreenState extends State<HomeScreen> {
       previewWidth = _cameraController!.value.previewSize?.height ?? 1;
       previewHeight = _cameraController!.value.previewSize?.width ?? 1;
     }
-
-    return Screenshot(
-      controller: _screenshotController,
-      child: GestureDetector(
-        onVerticalDragUpdate: (details) {
-          setState(() {
-            _showBrightnessSlider = true;
-            _brightnessValue -= details.delta.dy / 300;
-            _brightnessValue = _brightnessValue.clamp(0.0, 1.0);
-            if (_cameraController != null && _cameraController!.value.isInitialized) {
-               _cameraController!.getMinExposureOffset().then((min) {
-                 _cameraController!.getMaxExposureOffset().then((max) {
-                   double target = min + (max - min) * _brightnessValue;
-                   _cameraController!.setExposureOffset(target);
-                 });
+    return GestureDetector(
+      onVerticalDragUpdate: (details) {
+        setState(() {
+          _showBrightnessSlider = true;
+          _brightnessValue -= details.delta.dy / 300;
+          _brightnessValue = _brightnessValue.clamp(0.0, 1.0);
+          if (_cameraController != null && _cameraController!.value.isInitialized) {
+             _cameraController!.getMinExposureOffset().then((min) {
+               _cameraController!.getMaxExposureOffset().then((max) {
+                 double target = min + (max - min) * _brightnessValue;
+                 _cameraController!.setExposureOffset(target);
                });
-            }
-          });
-          
-          _sliderTimer?.cancel();
-          _sliderTimer = Timer(const Duration(seconds: 2), () {
-            if (mounted) {
-              setState(() => _showBrightnessSlider = false);
-            }
-          });
-        },
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            return Stack(
-              fit: StackFit.expand,
-          children: [
-            // Camera Preview
-            if (_cameraController != null && _cameraController!.value.isInitialized)
-              ClipRect(
-                child: OverflowBox(
-                  alignment: Alignment.center,
-                  child: FittedBox(
-                    fit: BoxFit.cover,
-                    child: SizedBox(
-                      width: previewWidth,
-                      height: previewHeight,
-                      child: CameraPreview(_cameraController!),
+             });
+          }
+        });
+        
+        _sliderTimer?.cancel();
+        _sliderTimer = Timer(const Duration(seconds: 2), () {
+          if (mounted) {
+            setState(() => _showBrightnessSlider = false);
+          }
+        });
+      },
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return Stack(
+            fit: StackFit.expand,
+            children: [
+              Screenshot(
+                controller: _screenshotController,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    // Camera Preview
+                    if (_cameraController != null && _cameraController!.value.isInitialized)
+                      ClipRect(
+                        child: OverflowBox(
+                          alignment: Alignment.center,
+                          child: FittedBox(
+                            fit: BoxFit.cover,
+                            child: SizedBox(
+                              width: previewWidth,
+                              height: previewHeight,
+                              child: CameraPreview(_cameraController!),
+                            ),
+                          ),
+                        ),
+                      )
+                    else
+                      const Center(child: CircularProgressIndicator(color: Colors.white)),
+
+                    // Geotag Overlay
+                    AnimatedPositioned(
+                      duration: const Duration(milliseconds: 480),
+                      curve: Curves.easeOutCubic,
+                      left: 16,
+                      bottom: (orientation == NativeDeviceOrientation.landscapeLeft || 
+                               orientation == NativeDeviceOrientation.landscapeRight)
+                          ? (constraints.maxHeight - (MediaQuery.of(context).size.width - 32)) / 2
+                          : 40,
+                      child: _rotateForOrientation(
+                        orientation: orientation,
+                        child: geotagOverlay,
+                      ),
                     ),
+                  ],
+                ),
+              ),
+
+              // Right side slider
+              Positioned(
+                right: 16,
+                top: 100,
+                bottom: 100,
+                child: AnimatedOpacity(
+                  opacity: _showBrightnessSlider ? 1.0 : 0.0,
+                  duration: const Duration(milliseconds: 300),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Expanded(
+                        child: RotatedBox(
+                          quarterTurns: 3,
+                          child: SliderTheme(
+                            data: SliderThemeData(
+                              trackHeight: 2,
+                              activeTrackColor: Colors.amber,
+                              inactiveTrackColor: Colors.white,
+                              thumbColor: Colors.transparent,
+                              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 0),
+                              overlayShape: const RoundSliderOverlayShape(overlayRadius: 0),
+                            ),
+                            child: Slider(
+                              value: _brightnessValue,
+                              onChanged: (val) {},
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      const Icon(Icons.wb_sunny_outlined, color: Colors.white, size: 20),
+                      const SizedBox(height: 8),
+                      Text(
+                        (_brightnessValue * 100).toInt().toString(), 
+                        style: const TextStyle(color: Colors.white, fontSize: 16)
+                      ),
+                    ],
                   ),
                 ),
-              )
-            else
-              const Center(child: CircularProgressIndicator(color: Colors.white)),
+              ),
 
-            // Right side slider
-            Positioned(
-              right: 16,
-              top: 100,
-              bottom: 100,
-              child: AnimatedOpacity(
-                opacity: _showBrightnessSlider ? 1.0 : 0.0,
-                duration: const Duration(milliseconds: 300),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Expanded(
-                      child: RotatedBox(
-                        quarterTurns: 3,
-                        child: SliderTheme(
-                          data: SliderThemeData(
-                            trackHeight: 2,
-                            activeTrackColor: Colors.amber,
-                            inactiveTrackColor: Colors.white,
-                            thumbColor: Colors.transparent,
-                            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 0),
-                            overlayShape: const RoundSliderOverlayShape(overlayRadius: 0),
+              // Zoom Controls
+              Positioned(
+                bottom: 160,
+                left: 0,
+                right: 0,
+                child: _rotateIcon(
+                  orientation,
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      GestureDetector(
+                        onTap: () => _setZoom(1.0),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: _currentZoom == 1.0 ? Colors.amber : Colors.black54,
+                            borderRadius: BorderRadius.circular(20),
                           ),
-                          child: Slider(
-                            value: _brightnessValue,
-                            onChanged: (val) {},
-                          ),
+                          child: Text('1X', style: TextStyle(color: _currentZoom == 1.0 ? Colors.black : Colors.white, fontWeight: FontWeight.bold)),
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    const Icon(Icons.wb_sunny_outlined, color: Colors.white, size: 20),
-                    const SizedBox(height: 8),
-                    Text(
-                      (_brightnessValue * 100).toInt().toString(), 
-                      style: const TextStyle(color: Colors.white, fontSize: 16)
-                    ),
-                  ],
+                      const SizedBox(width: 16),
+                      GestureDetector(
+                        onTap: () => _setZoom(2.0),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: _currentZoom == 2.0 ? Colors.amber : Colors.black54,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text('2X', style: TextStyle(color: _currentZoom == 2.0 ? Colors.black : Colors.white, fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-
-            // Zoom Controls
-            Positioned(
-              bottom: 160,
-              left: 0,
-              right: 0,
-              child: _rotateIcon(
-                orientation,
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    GestureDetector(
-                      onTap: () => _setZoom(1.0),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: _currentZoom == 1.0 ? Colors.amber : Colors.black54,
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text('1X', style: TextStyle(color: _currentZoom == 1.0 ? Colors.black : Colors.white, fontWeight: FontWeight.bold)),
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    GestureDetector(
-                      onTap: () => _setZoom(2.0),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: _currentZoom == 2.0 ? Colors.amber : Colors.black54,
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text('2X', style: TextStyle(color: _currentZoom == 2.0 ? Colors.black : Colors.white, fontWeight: FontWeight.bold)),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-
-            // Geotag Overlay
-            AnimatedPositioned(
-              duration: const Duration(milliseconds: 480),
-              curve: Curves.easeOutCubic,
-              left: 16,
-              bottom: (orientation == NativeDeviceOrientation.landscapeLeft || 
-                       orientation == NativeDeviceOrientation.landscapeRight)
-                  ? (constraints.maxHeight - (MediaQuery.of(context).size.width - 32)) / 2
-                  : 40,
-              child: _rotateForOrientation(
-                orientation: orientation,
-                child: geotagOverlay,
-              ),
-            ),
-          ],
-            );
-          },
-        ),
+            ],
+          );
+        },
       ),
     );
   }
