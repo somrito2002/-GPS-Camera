@@ -15,6 +15,8 @@ import 'locations_screen.dart';
 import 'video_preview_screen.dart';
 import 'image_preview_screen.dart';
 import 'package:native_device_orientation/native_device_orientation.dart';
+import 'connectivity_overlay.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'main.dart'; // Access 'cameras' global
 
 class HomeScreen extends StatefulWidget {
@@ -31,6 +33,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Timer? _sliderTimer;
   Timer? _timeTimer;
   StreamSubscription<Position>? _positionStreamSubscription;
+  bool _hasInternet = true;
 
   CameraController? _cameraController;
   
@@ -51,8 +54,8 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    _initCamera();
-    _initLocation();
+    _initializeApp();
+    
     _currentTime = DateFormat("EEEE, dd/MM/yyyy hh:mm a 'GMT' Z").format(DateTime.now());
     _timeTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (mounted) {
@@ -61,6 +64,38 @@ class _HomeScreenState extends State<HomeScreen> {
         });
       }
     });
+
+    Connectivity().onConnectivityChanged.listen((List<ConnectivityResult> result) {
+      bool hasConnection = result.any((r) => 
+        r == ConnectivityResult.wifi || 
+        r == ConnectivityResult.mobile || 
+        r == ConnectivityResult.ethernet || 
+        r == ConnectivityResult.vpn
+      );
+
+      _hasInternet = hasConnection;
+
+      if (!hasConnection && mounted) {
+        setState(() {
+          _addressLine1 = "No internet connection";
+          _addressLine2 = "";
+          _latLong = "Lat -- Long --";
+          _currentLatLng = null;
+        });
+      } else if (hasConnection && mounted) {
+        // Immediately fetch the location when the connection returns
+        Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high)
+            .then((position) => _updateLocationInfo(position))
+            .catchError((e) => debugPrint("Location refetch error: $e"));
+      }
+    });
+  }
+
+  Future<void> _initializeApp() async {
+    // Await location initialization first so the permission dialog is shown immediately
+    await _initLocation();
+    // After location is initialized (and permissions handled), initialize the camera
+    await _initCamera();
   }
 
   Future<void> _initCamera() async {
@@ -165,6 +200,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _updateLocationInfo(Position position) async {
+    if (!_hasInternet) return; // Prevent GPS stream from overriding cleared state when offline
+
     if (mounted) {
       setState(() {
         _latLong = "Lat ${position.latitude.toStringAsFixed(6)}° Long ${position.longitude.toStringAsFixed(6)}°";
@@ -267,15 +304,17 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: SafeArea(
-        child: NativeDeviceOrientationReader(
-          useSensor: true,
-          builder: (context) {
-            NativeDeviceOrientation orientation = NativeDeviceOrientationReader.orientation(context);
-            return _buildPortraitLayout(context, orientation);
-          },
+    return ConnectivityOverlay(
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        body: SafeArea(
+          child: NativeDeviceOrientationReader(
+            useSensor: true,
+            builder: (context) {
+              NativeDeviceOrientation orientation = NativeDeviceOrientationReader.orientation(context);
+              return _buildPortraitLayout(context, orientation);
+            },
+          ),
         ),
       ),
     );
@@ -386,13 +425,18 @@ class _HomeScreenState extends State<HomeScreen> {
     return [
       // Preview
       GestureDetector(
-        onTap: () {
+        onTap: () async {
           if (_lastCapturedFile != null) {
             if (_lastCapturedFile!.path.endsWith('.mp4')) {
               Navigator.push(context, MaterialPageRoute(builder: (_) => VideoPreviewScreen(videoPath: _lastCapturedFile!.path)));
               return;
             }
-            Navigator.push(context, MaterialPageRoute(builder: (_) => ImagePreviewScreen(imagePath: _lastCapturedFile!.path)));
+            final deleted = await Navigator.push(context, MaterialPageRoute(builder: (_) => ImagePreviewScreen(imagePath: _lastCapturedFile!.path)));
+            if (deleted == true) {
+              setState(() {
+                _lastCapturedFile = null;
+              });
+            }
           }
         },
         child: _rotateIcon(orientation, Column(

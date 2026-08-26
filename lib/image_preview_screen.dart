@@ -47,7 +47,7 @@ class ImagePreviewScreen extends StatelessWidget {
             IconButton(
               icon: const Icon(Icons.share_outlined, color: Colors.white),
               onPressed: () {
-                Share.shareXFiles([XFile(imagePath)], text: 'Captured with Meco GPS Camera');
+                Share.shareXFiles([XFile(imagePath)]);
               },
             ),
             IconButton(
@@ -78,7 +78,7 @@ class ImagePreviewScreen extends StatelessWidget {
                     file.deleteSync();
                   }
                   if (context.mounted) {
-                    Navigator.pop(context);
+                    Navigator.pop(context, true); // Return true when deleted
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('Photo deleted')),
                     );
@@ -87,8 +87,10 @@ class ImagePreviewScreen extends StatelessWidget {
               },
             ),
             IconButton(
-              icon: const Icon(Icons.more_horiz, color: Colors.white),
-              onPressed: () {},
+              icon: const Icon(Icons.replay, color: Colors.white), // Retake icon
+              onPressed: () {
+                Navigator.pop(context, false); // Redirect back to camera window
+              },
             ),
           ],
         ),
