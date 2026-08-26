@@ -13,6 +13,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'locations_screen.dart';
 import 'video_preview_screen.dart';
+import 'image_preview_screen.dart';
 import 'package:native_device_orientation/native_device_orientation.dart';
 import 'main.dart'; // Access 'cameras' global
 
@@ -373,11 +374,7 @@ class _HomeScreenState extends State<HomeScreen> {
               Navigator.push(context, MaterialPageRoute(builder: (_) => VideoPreviewScreen(videoPath: _lastCapturedFile!.path)));
               return;
             }
-            Navigator.push(context, MaterialPageRoute(builder: (_) => Scaffold(
-              backgroundColor: Colors.black,
-              appBar: AppBar(backgroundColor: Colors.black, iconTheme: const IconThemeData(color: Colors.white)),
-              body: Center(child: Image.file(File(_lastCapturedFile!.path))),
-            )));
+            Navigator.push(context, MaterialPageRoute(builder: (_) => ImagePreviewScreen(imagePath: _lastCapturedFile!.path)));
           }
         },
         child: _rotateIcon(orientation, Column(
@@ -435,7 +432,7 @@ class _HomeScreenState extends State<HomeScreen> {
           height: 70,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            border: Border.all(color: (_isVideoMode && _isRecording) ? Colors.red : Colors.white, width: 4),
+            border: Border.all(color: _isVideoMode ? Colors.red : Colors.white, width: 4),
           ),
           child: Center(
             child: AnimatedContainer(
@@ -445,7 +442,7 @@ class _HomeScreenState extends State<HomeScreen> {
               decoration: BoxDecoration(
                 shape: (_isVideoMode && _isRecording) ? BoxShape.rectangle : BoxShape.circle,
                 borderRadius: (_isVideoMode && _isRecording) ? BorderRadius.circular(6) : null,
-                color: (_isVideoMode && _isRecording) ? Colors.red : Colors.white,
+                color: _isVideoMode ? Colors.red : Colors.white,
               ),
             ),
           ),
