@@ -15,9 +15,16 @@ import 'locations_screen.dart';
 import 'video_preview_screen.dart';
 import 'image_preview_screen.dart';
 import 'package:native_device_orientation/native_device_orientation.dart';
+import 'package:flutter/services.dart';
 import 'connectivity_overlay.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:gal/gal.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'storage_screen.dart';
 import 'main.dart'; // Access 'cameras' global
+import 'package:flutter_compass/flutter_compass.dart';
+import 'widgets/geotag_overlays.dart';
+import 'template_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -51,6 +58,14 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isSwitchingCamera = false;
   int _cameraSwitchGeneration = 0;
 
+  GeotagTemplate _selectedTemplate = GeotagTemplate.classic;
+  double? _currentHeading;
+  double? _currentAccuracy;
+  StreamSubscription<CompassEvent>? _compassSubscription;
+
+  static const platform = MethodChannel('com.example.geotag/settings');
+  bool _isAutoRotationEnabled = true;
+
   @override
   void initState() {
     super.initState();
@@ -59,8 +74,20 @@ class _HomeScreenState extends State<HomeScreen> {
     _currentTime = DateFormat("EEEE, dd/MM/yyyy hh:mm a 'GMT' Z").format(DateTime.now());
     _timeTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (mounted) {
+        _checkAutoRotation();
         setState(() {
           _currentTime = DateFormat("EEEE, dd/MM/yyyy hh:mm a 'GMT' Z").format(DateTime.now());
+        });
+      }
+    });
+
+    _loadSelectedTemplate();
+
+    _compassSubscription = FlutterCompass.events?.listen((event) {
+      if (mounted) {
+        setState(() {
+          _currentHeading = event.heading;
+          _currentAccuracy = event.accuracy;
         });
       }
     });
@@ -89,6 +116,31 @@ class _HomeScreenState extends State<HomeScreen> {
             .catchError((e) => debugPrint("Location refetch error: $e"));
       }
     });
+  }
+
+  Future<void> _loadSelectedTemplate() async {
+    final prefs = await SharedPreferences.getInstance();
+    final index = prefs.getInt('selected_template_index') ?? 0;
+    if (index >= 0 && index < GeotagTemplate.values.length && mounted) {
+      setState(() {
+        _selectedTemplate = GeotagTemplate.values[index];
+      });
+    }
+  }
+
+  Future<void> _checkAutoRotation() async {
+    if (Platform.isAndroid) {
+      try {
+        final bool isEnabled = await platform.invokeMethod('isAutoRotationEnabled');
+        if (_isAutoRotationEnabled != isEnabled && mounted) {
+          setState(() {
+            _isAutoRotationEnabled = isEnabled;
+          });
+        }
+      } catch (e) {
+        debugPrint("Failed to get auto-rotation setting: $e");
+      }
+    }
   }
 
   Future<void> _initializeApp() async {
@@ -275,15 +327,36 @@ class _HomeScreenState extends State<HomeScreen> {
         
         if (imageBytes != null) {
           final directory = await getTemporaryDirectory();
-          final imagePath = await File('${directory.path}/image_${DateTime.now().millisecondsSinceEpoch}.png').create();
-          await imagePath.writeAsBytes(imageBytes);
+          final imageFile = await File('${directory.path}/image_${DateTime.now().millisecondsSinceEpoch}.png').create();
+          await imageFile.writeAsBytes(imageBytes);
+
+          // Handle storage options
+          final prefs = await SharedPreferences.getInstance();
+          final saveToGallery = prefs.getBool('save_to_gallery') ?? false;
+
+          bool storageSuccess = true;
+          String successMessage = 'Photo captured!';
+
+          if (saveToGallery) {
+            try {
+              await Gal.putImage(imageFile.path);
+              successMessage = 'Photo saved to Gallery!';
+            } catch (e) {
+              debugPrint("Gallery save error: $e");
+              storageSuccess = false;
+            }
+          }
 
           if (mounted) {
             setState(() {
-              _lastCapturedFile = XFile(imagePath.path);
+              _lastCapturedFile = XFile(imageFile.path);
             });
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Photo captured!'), backgroundColor: Colors.green, duration: Duration(seconds: 2)),
+              SnackBar(
+                content: Text(storageSuccess ? successMessage : 'Failed to save photo to selected storage.'),
+                backgroundColor: storageSuccess ? Colors.green : Colors.red,
+                duration: const Duration(seconds: 2),
+              ),
             );
           }
         }
@@ -298,6 +371,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _positionStreamSubscription?.cancel();
     _sliderTimer?.cancel();
     _timeTimer?.cancel();
+    _compassSubscription?.cancel();
     _cameraController?.dispose();
     super.dispose();
   }
@@ -309,9 +383,11 @@ class _HomeScreenState extends State<HomeScreen> {
         backgroundColor: Colors.black,
         body: SafeArea(
           child: NativeDeviceOrientationReader(
-            useSensor: true,
+            useSensor: _isAutoRotationEnabled,
             builder: (context) {
-              NativeDeviceOrientation orientation = NativeDeviceOrientationReader.orientation(context);
+              NativeDeviceOrientation orientation = _isAutoRotationEnabled 
+                  ? NativeDeviceOrientationReader.orientation(context)
+                  : NativeDeviceOrientation.portraitUp;
               return _buildPortraitLayout(context, orientation);
             },
           ),
@@ -511,47 +587,75 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
       // Storage
-      _rotateIcon(orientation, const Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.folder_outlined, color: Colors.white, size: 32),
-          SizedBox(height: 4),
-          Text('Storage', style: TextStyle(color: Colors.white, fontSize: 12)),
-        ],
-      )),
+      GestureDetector(
+        onTap: () {
+          Navigator.push(context, MaterialPageRoute(builder: (_) => const StorageScreen()));
+        },
+        child: _rotateIcon(orientation, const Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.folder_outlined, color: Colors.white, size: 32),
+            SizedBox(height: 4),
+            Text('Storage', style: TextStyle(color: Colors.white, fontSize: 12)),
+          ],
+        )),
+      ),
       // Template
-      _rotateIcon(orientation, Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Stack(
-            children: [
-              const Icon(Icons.grid_view, color: Colors.white, size: 32),
-              Positioned(
-                right: 0,
-                top: 0,
-                child: Container(
-                  padding: const EdgeInsets.all(2),
-                  decoration: const BoxDecoration(
-                    color: Colors.red,
-                    shape: BoxShape.circle,
+      GestureDetector(
+        onTap: () async {
+          final result = await Navigator.push(context, MaterialPageRoute(builder: (_) => TemplateScreen(
+            addressLine1: _addressLine1,
+            addressLine2: _addressLine2,
+            latLong: _latLong,
+            currentTime: _currentTime,
+            currentLatLng: _currentLatLng,
+            currentHeading: _currentHeading,
+            currentAccuracy: _currentAccuracy,
+          )));
+          if (result != null && result is GeotagTemplate && mounted) {
+            setState(() {
+              _selectedTemplate = result;
+            });
+          }
+        },
+        child: _rotateIcon(orientation, Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Stack(
+              children: [
+                const Icon(Icons.grid_view, color: Colors.white, size: 32),
+                Positioned(
+                  right: 0,
+                  top: 0,
+                  child: Container(
+                    padding: const EdgeInsets.all(2),
+                    decoration: const BoxDecoration(
+                      color: Colors.red,
+                      shape: BoxShape.circle,
+                    ),
+                    constraints: const BoxConstraints(
+                      minWidth: 14,
+                      minHeight: 14,
+                    ),
+                    child: Text(
+                      '${_selectedTemplate.index + 1}',
+                      style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold),
+                      textAlign: TextAlign.center,
+                    ),
                   ),
-                  constraints: const BoxConstraints(
-                    minWidth: 14,
-                    minHeight: 14,
-                  ),
-                  child: const Text(
-                    '1',
-                    style: TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-              )
-            ],
-          ),
-          const SizedBox(height: 4),
-          const Text('Template', style: TextStyle(color: Colors.white, fontSize: 12)),
-        ],
-      )),
+                )
+              ],
+            ),
+            const SizedBox(height: 4),
+            const Text('Template', style: TextStyle(color: Colors.white, fontSize: 12)),
+            Text(
+              _templateShortName(_selectedTemplate),
+              style: const TextStyle(color: Colors.amber, fontSize: 9, fontWeight: FontWeight.w600),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        )),
+      ),
     ];
   }
 
@@ -766,107 +870,28 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  String _templateShortName(GeotagTemplate template) {
+    switch (template) {
+      case GeotagTemplate.classic:        return 'Classic';
+      case GeotagTemplate.reporting:      return 'Reporting';
+      case GeotagTemplate.navigationCompass: return 'Compass';
+      case GeotagTemplate.advance:        return 'Advance';
+      case GeotagTemplate.dateTime:       return 'DateTime';
+      case GeotagTemplate.scanLocation:   return 'Scan';
+    }
+  }
+
   Widget _buildGeotagOverlay() {
-    return Container(
-      width: MediaQuery.of(context).size.width - 32,
-      decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.6),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      padding: const EdgeInsets.all(8),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 12,
-                  height: 12,
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(Icons.camera_alt, size: 8, color: Colors.black),
-                ),
-                const SizedBox(width: 4),
-                const Text('Meco GPS Camera', style: TextStyle(color: Colors.white, fontSize: 10)),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Map Image Placeholder
-                Container(
-                  width: 80,
-                  height: 80,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[800],
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: _currentLatLng != null ? FlutterMap(
-                      key: ValueKey(_currentLatLng),
-                      options: MapOptions(
-                        initialCenter: _currentLatLng!,
-                        initialZoom: 15.0,
-                        interactionOptions: const InteractionOptions(flags: InteractiveFlag.none),
-                      ),
-                      children: [
-                        TileLayer(
-                          urlTemplate: 'https://mt0.google.com/vt/lyrs=y&hl=en&x={x}&y={y}&z={z}',
-                          userAgentPackageName: 'com.example.geotag',
-                        ),
-                        MarkerLayer(
-                          markers: [
-                            Marker(
-                              point: _currentLatLng!,
-                              child: const Icon(Icons.location_on, color: Colors.red, size: 30),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ) : const Center(
-                      child: Text('Google', style: TextStyle(color: Colors.white54, fontWeight: FontWeight.bold)),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                // Address Info
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        _addressLine1,
-                        style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        _addressLine2,
-                        style: TextStyle(color: Colors.grey[400], fontSize: 11),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      Text(
-                        _latLong,
-                        style: TextStyle(color: Colors.grey[400], fontSize: 11),
-                      ),
-                      Text(
-                        _currentTime,
-                        style: TextStyle(color: Colors.grey[400], fontSize: 11),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
+    return GeotagOverlayBuilder.buildOverlay(
+      context: context,
+      template: _selectedTemplate,
+      addressLine1: _addressLine1,
+      addressLine2: _addressLine2,
+      latLong: _latLong,
+      currentTime: _currentTime,
+      currentLatLng: _currentLatLng,
+      heading: _currentHeading,
+      accuracy: _currentAccuracy,
     );
   }
 }
