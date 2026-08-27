@@ -4,6 +4,8 @@ import 'package:latlong2/latlong.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:intl/intl.dart';
 
+import '../models/template_config.dart';
+
 enum GeotagTemplate {
   classic,
   reporting,
@@ -24,7 +26,10 @@ class GeotagOverlayBuilder {
     required LatLng? currentLatLng,
     double? heading,
     double? accuracy,
+    TemplateConfig? config,
   }) {
+    final effectiveConfig = config ?? const TemplateConfig();
+    
     switch (template) {
       case GeotagTemplate.classic:
         return _buildClassicTemplate(
@@ -34,6 +39,7 @@ class GeotagOverlayBuilder {
           latLong: latLong,
           currentTime: currentTime,
           currentLatLng: currentLatLng,
+          config: effectiveConfig,
         );
       case GeotagTemplate.reporting:
         return _buildReportingTemplate(
@@ -43,6 +49,7 @@ class GeotagOverlayBuilder {
           latLong: latLong,
           currentTime: currentTime,
           currentLatLng: currentLatLng,
+          config: effectiveConfig,
         );
       case GeotagTemplate.navigationCompass:
         return _buildNavigationCompassTemplate(
@@ -54,6 +61,7 @@ class GeotagOverlayBuilder {
           currentLatLng: currentLatLng,
           heading: heading,
           accuracy: accuracy,
+          config: effectiveConfig,
         );
       case GeotagTemplate.advance:
         return _buildAdvanceTemplate(
@@ -63,6 +71,7 @@ class GeotagOverlayBuilder {
           latLong: latLong,
           currentTime: currentTime,
           currentLatLng: currentLatLng,
+          config: effectiveConfig,
         );
       case GeotagTemplate.dateTime:
         return _buildDateTimeTemplate(
@@ -70,6 +79,7 @@ class GeotagOverlayBuilder {
           addressLine1: addressLine1,
           addressLine2: addressLine2,
           latLong: latLong,
+          config: effectiveConfig,
         );
       case GeotagTemplate.scanLocation:
         return _buildScanLocationTemplate(
@@ -79,14 +89,31 @@ class GeotagOverlayBuilder {
           latLong: latLong,
           currentTime: currentTime,
           currentLatLng: currentLatLng,
+          config: effectiveConfig,
         );
     }
   }
 
-  static Widget _buildMap(LatLng? latLng, {double size = 80, double borderRadius = 8, bool isInteractive = false}) {
+  static String _getMapUrl(MapType type) {
+    switch (type) {
+      case MapType.satellite:
+        return 'https://mt0.google.com/vt/lyrs=s&hl=en&x={x}&y={y}&z={z}';
+      case MapType.terrain:
+        return 'https://mt0.google.com/vt/lyrs=p&hl=en&x={x}&y={y}&z={z}';
+      case MapType.hybrid:
+        return 'https://mt0.google.com/vt/lyrs=y&hl=en&x={x}&y={y}&z={z}';
+      case MapType.normal:
+      default:
+        return 'https://mt0.google.com/vt/lyrs=m&hl=en&x={x}&y={y}&z={z}';
+    }
+  }
+
+  static Widget _buildMap(LatLng? latLng, TemplateConfig config, {double size = 80, double borderRadius = 8, bool isInteractive = false}) {
+    final effectiveSize = size * config.mapScale;
+    
     return Container(
-      width: size,
-      height: size,
+      width: effectiveSize,
+      height: effectiveSize,
       decoration: BoxDecoration(
         color: Colors.grey[800],
         borderRadius: BorderRadius.circular(borderRadius),
@@ -105,7 +132,7 @@ class GeotagOverlayBuilder {
                 ),
                 children: [
                   TileLayer(
-                    urlTemplate: 'https://mt0.google.com/vt/lyrs=y&hl=en&x={x}&y={y}&z={z}',
+                    urlTemplate: _getMapUrl(config.mapType),
                     userAgentPackageName: 'com.example.geotag',
                   ),
                   MarkerLayer(
@@ -129,10 +156,24 @@ class GeotagOverlayBuilder {
     required String addressLine1,
     required String addressLine2,
     required String latLong,
+    required TemplateConfig config,
     String? currentTime,
     Color titleColor = Colors.white,
     Color subtitleColor = Colors.grey,
   }) {
+    String formattedTime = currentTime ?? "";
+    if (formattedTime.isNotEmpty && config.dateTimeFormat.isNotEmpty) {
+      try {
+        formattedTime = DateFormat(config.dateTimeFormat).format(DateTime.now());
+      } catch (e) {
+        // Fallback if format is invalid
+      }
+    }
+
+    final effectiveColor = config.stampColor;
+    final scale = config.stampSize;
+    final fontFam = config.stampFont;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -141,7 +182,12 @@ class GeotagOverlayBuilder {
             Expanded(
               child: Text(
                 addressLine1,
-                style: TextStyle(color: titleColor, fontSize: 14, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  color: effectiveColor, 
+                  fontSize: 14 * scale, 
+                  fontWeight: FontWeight.bold,
+                  fontFamily: fontFam,
+                ),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -151,20 +197,31 @@ class GeotagOverlayBuilder {
           ],
         ),
         const SizedBox(height: 4),
-        Text(
-          addressLine2,
-          style: TextStyle(color: subtitleColor, fontSize: 11),
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-        ),
+        if (!config.shortAddress)
+          Text(
+            addressLine2,
+            style: TextStyle(color: effectiveColor.withValues(alpha: 0.8), fontSize: 11 * scale, fontFamily: fontFam),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
         Text(
           latLong,
-          style: TextStyle(color: subtitleColor, fontSize: 11),
+          style: TextStyle(color: effectiveColor.withValues(alpha: 0.8), fontSize: 11 * scale, fontFamily: fontFam),
         ),
-        if (currentTime != null)
+        if (formattedTime.isNotEmpty)
           Text(
-            currentTime,
-            style: TextStyle(color: subtitleColor, fontSize: 11),
+            formattedTime,
+            style: TextStyle(color: effectiveColor.withValues(alpha: 0.8), fontSize: 11 * scale, fontFamily: fontFam),
+          ),
+        if (config.notes.isNotEmpty)
+          Text(
+            'Note: ${config.notes}',
+            style: TextStyle(color: effectiveColor.withValues(alpha: 0.9), fontSize: 11 * scale, fontStyle: FontStyle.italic, fontFamily: fontFam),
+          ),
+        if (config.hashtags.isNotEmpty)
+          Text(
+            config.hashtags,
+            style: TextStyle(color: Colors.blueAccent, fontSize: 11 * scale, fontWeight: FontWeight.w600, fontFamily: fontFam),
           ),
       ],
     );
@@ -177,11 +234,12 @@ class GeotagOverlayBuilder {
     required String latLong,
     required String currentTime,
     required LatLng? currentLatLng,
+    required TemplateConfig config,
   }) {
     return Container(
       width: MediaQuery.of(context).size.width - 32,
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.6),
+        color: Colors.black.withValues(alpha: 0.6),
         borderRadius: BorderRadius.circular(8),
       ),
       padding: const EdgeInsets.all(8),
@@ -208,7 +266,7 @@ class GeotagOverlayBuilder {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildMap(currentLatLng),
+              _buildMap(currentLatLng, config),
               const SizedBox(width: 12),
               Expanded(
                 child: _buildAddressText(
@@ -217,6 +275,7 @@ class GeotagOverlayBuilder {
                   latLong: latLong,
                   currentTime: currentTime,
                   subtitleColor: Colors.grey[400]!,
+                  config: config,
                 ),
               ),
             ],
@@ -233,11 +292,12 @@ class GeotagOverlayBuilder {
     required String latLong,
     required String currentTime,
     required LatLng? currentLatLng,
+    required TemplateConfig config,
   }) {
     return Container(
       width: MediaQuery.of(context).size.width - 32,
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.6),
+        color: Colors.black.withValues(alpha: 0.6),
         borderRadius: BorderRadius.circular(8),
       ),
       padding: const EdgeInsets.all(8),
@@ -258,7 +318,7 @@ class GeotagOverlayBuilder {
                     child: const Text('Check In', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
                   ),
                   const SizedBox(height: 4),
-                  _buildMap(currentLatLng),
+                  _buildMap(currentLatLng, config),
                 ],
               ),
               const SizedBox(width: 12),
@@ -271,6 +331,7 @@ class GeotagOverlayBuilder {
                     latLong: latLong,
                     currentTime: currentTime,
                     subtitleColor: Colors.grey[400]!,
+                    config: config,
                   ),
                 ),
               ),
@@ -290,19 +351,25 @@ class GeotagOverlayBuilder {
     required LatLng? currentLatLng,
     double? heading,
     double? accuracy,
+    required TemplateConfig config,
   }) {
     String headingText = "N/A";
     if (heading != null) {
-      if (heading >= 315 || heading < 45) headingText = "Facing North";
-      else if (heading >= 45 && heading < 135) headingText = "Facing East";
-      else if (heading >= 135 && heading < 225) headingText = "Facing South";
-      else headingText = "Facing West";
+      if (heading >= 315 || heading < 45) {
+        headingText = "Facing North";
+      } else if (heading >= 45 && heading < 135) {
+        headingText = "Facing East";
+      } else if (heading >= 135 && heading < 225) {
+        headingText = "Facing South";
+      } else {
+        headingText = "Facing West";
+      }
     }
 
     return Container(
       width: MediaQuery.of(context).size.width - 32,
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.6),
+        color: Colors.black.withValues(alpha: 0.6),
         borderRadius: BorderRadius.circular(8),
       ),
       padding: const EdgeInsets.all(8),
@@ -361,6 +428,7 @@ class GeotagOverlayBuilder {
                   currentTime: currentTime,
                   titleColor: Colors.white,
                   subtitleColor: Colors.grey[400]!,
+                  config: config,
                 ),
                 const SizedBox(height: 4),
                 Row(
@@ -385,7 +453,7 @@ class GeotagOverlayBuilder {
           ),
           const SizedBox(width: 8),
           // Map
-          _buildMap(currentLatLng, size: 60),
+          _buildMap(currentLatLng, config, size: 60),
         ],
       ),
     );
@@ -398,6 +466,7 @@ class GeotagOverlayBuilder {
     required String latLong,
     required String currentTime,
     required LatLng? currentLatLng,
+    required TemplateConfig config,
   }) {
     return Stack(
       clipBehavior: Clip.none,
@@ -405,7 +474,7 @@ class GeotagOverlayBuilder {
         Container(
           width: MediaQuery.of(context).size.width - 32,
           decoration: BoxDecoration(
-            color: Colors.black.withOpacity(0.6),
+            color: Colors.black.withValues(alpha: 0.6),
             borderRadius: BorderRadius.circular(8),
             border: const Border(left: BorderSide(color: Colors.orange, width: 4)),
           ),
@@ -418,7 +487,7 @@ class GeotagOverlayBuilder {
                   border: Border.all(color: Colors.white, width: 2),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: _buildMap(currentLatLng, size: 80, borderRadius: 8),
+                child: _buildMap(currentLatLng, config, size: 80, borderRadius: 8),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -428,23 +497,12 @@ class GeotagOverlayBuilder {
                   latLong: latLong,
                   currentTime: currentTime,
                   subtitleColor: Colors.grey[400]!,
+                  config: config,
                 ),
               ),
             ],
           ),
         ),
-        Positioned(
-          bottom: -10,
-          right: -10,
-          child: Container(
-            padding: const EdgeInsets.all(8),
-            decoration: const BoxDecoration(
-              color: Colors.amber,
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.edit, color: Colors.white, size: 20),
-          ),
-        )
       ],
     );
   }
@@ -454,6 +512,7 @@ class GeotagOverlayBuilder {
     required String addressLine1,
     required String addressLine2,
     required String latLong,
+    required TemplateConfig config,
   }) {
     final now = DateTime.now();
     final timeStr = DateFormat('hh:mm a').format(now);
@@ -462,7 +521,7 @@ class GeotagOverlayBuilder {
     return Container(
       width: MediaQuery.of(context).size.width - 32,
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.6),
+        color: Colors.black.withValues(alpha: 0.6),
         borderRadius: BorderRadius.circular(8),
       ),
       padding: const EdgeInsets.all(8),
@@ -495,6 +554,7 @@ class GeotagOverlayBuilder {
             addressLine2: addressLine2,
             latLong: latLong,
             subtitleColor: Colors.grey[400]!,
+            config: config,
           ),
         ],
       ),
@@ -508,6 +568,7 @@ class GeotagOverlayBuilder {
     required String latLong,
     required String currentTime,
     required LatLng? currentLatLng,
+    required TemplateConfig config,
   }) {
     String qrData = currentLatLng != null 
         ? "https://maps.google.com/?q=${currentLatLng.latitude},${currentLatLng.longitude}" 
@@ -516,7 +577,7 @@ class GeotagOverlayBuilder {
     return Container(
       width: MediaQuery.of(context).size.width - 32,
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.6),
+        color: Colors.black.withValues(alpha: 0.6),
         borderRadius: BorderRadius.circular(8),
       ),
       padding: const EdgeInsets.all(8),
@@ -541,7 +602,7 @@ class GeotagOverlayBuilder {
           Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              _buildMap(currentLatLng, size: 70),
+              _buildMap(currentLatLng, config, size: 70),
               const SizedBox(width: 8),
               Expanded(
                 child: _buildAddressText(
@@ -550,18 +611,20 @@ class GeotagOverlayBuilder {
                   latLong: latLong,
                   currentTime: currentTime,
                   subtitleColor: Colors.grey[400]!,
+                  config: config,
                 ),
               ),
               const SizedBox(width: 8),
-              Container(
-                color: Colors.white,
-                padding: const EdgeInsets.all(4),
-                child: QrImageView(
-                  data: qrData,
-                  version: QrVersions.auto,
-                  size: 60.0,
+              if (config.showQrCode)
+                Container(
+                  color: Colors.white,
+                  padding: const EdgeInsets.all(4),
+                  child: QrImageView(
+                    data: qrData,
+                    version: QrVersions.auto,
+                    size: 60.0 * config.stampSize,
+                  ),
                 ),
-              ),
             ],
           ),
         ],
