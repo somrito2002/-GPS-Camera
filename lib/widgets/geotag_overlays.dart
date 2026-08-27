@@ -132,7 +132,7 @@ class GeotagOverlayBuilder {
                 ),
                 children: [
                   TileLayer(
-                    urlTemplate: _getMapUrl(config.mapType),
+                    urlTemplate: _getMapUrl(MapType.satellite), // Strictly satellite as requested
                     userAgentPackageName: 'com.example.geotag',
                   ),
                   MarkerLayer(

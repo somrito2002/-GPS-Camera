@@ -172,6 +172,29 @@ class _TemplateScreenState extends State<TemplateScreen>
           'Template',
           style: TextStyle(color: titleColor, fontWeight: FontWeight.bold),
         ),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setInt('selected_template_index', _selectedTemplate.index);
+              if (mounted) {
+                setState(() {
+                  _activeTemplate = _selectedTemplate;
+                });
+                Navigator.pop(context, _selectedTemplate);
+              }
+            },
+            child: const Text(
+              'Apply',
+              style: TextStyle(
+                color: _mecoGreen,
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+        ],
         backgroundColor: appBarBg,
         elevation: 1,
       ),

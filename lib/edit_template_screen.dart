@@ -94,7 +94,6 @@ class _EditTemplateScreenState extends State<EditTemplateScreen> {
   }
 
   Widget _buildSectionHeader(String title) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Padding(
       padding: const EdgeInsets.only(top: 16, bottom: 8),
       child: Text(

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:math' as math;
+import 'login_screen.dart';
 import 'home_screen.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -13,13 +15,37 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
-    Future.delayed(const Duration(seconds: 2), () {
-      if (mounted) {
+    _checkSession();
+  }
+
+  Future<void> _checkSession() async {
+    // Wait for the splash screen duration
+    await Future.delayed(const Duration(seconds: 2));
+    if (!mounted) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    final loginTimeMs = prefs.getInt('login_time');
+
+    if (loginTimeMs != null) {
+      final loginTime = DateTime.fromMillisecondsSinceEpoch(loginTimeMs);
+      final difference = DateTime.now().difference(loginTime);
+
+      if (difference.inHours < 24) {
+        // Session is valid (less than 24 hours old)
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (_) => const HomeScreen()),
         );
+        return;
+      } else {
+        // Session expired, remove it
+        await prefs.remove('login_time');
       }
-    });
+    }
+
+    // No valid session found, go to LoginScreen
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
+    );
   }
 
   @override

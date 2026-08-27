@@ -21,6 +21,8 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:gal/gal.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'storage_screen.dart';
+import 'settings_screen.dart';
+import 'login_screen.dart';
 import 'main.dart'; // Access 'cameras' global
 import 'package:flutter_compass/flutter_compass.dart';
 import 'widgets/geotag_overlays.dart';
@@ -33,7 +35,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final ScreenshotController _screenshotController = ScreenshotController();
   double _brightnessValue = 0.5;
   bool _showBrightnessSlider = false;
@@ -69,6 +71,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _initializeApp();
     
     _currentTime = DateFormat("EEEE, dd/MM/yyyy hh:mm a 'GMT' Z").format(DateTime.now());
@@ -368,12 +371,47 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _positionStreamSubscription?.cancel();
     _sliderTimer?.cancel();
     _timeTimer?.cancel();
     _compassSubscription?.cancel();
     _cameraController?.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkSessionStatus();
+    }
+  }
+
+  Future<void> _checkSessionStatus() async {
+    final prefs = await SharedPreferences.getInstance();
+    final loginTimeMs = prefs.getInt('login_time');
+
+    if (loginTimeMs != null) {
+      final loginTime = DateTime.fromMillisecondsSinceEpoch(loginTimeMs);
+      final difference = DateTime.now().difference(loginTime);
+
+      if (difference.inHours >= 24) {
+        // Session expired, remove it and force logout
+        await prefs.remove('login_time');
+        if (!mounted) return;
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const LoginScreen()),
+          (route) => false,
+        );
+      }
+    } else {
+      // No session, force logout
+      if (!mounted) return;
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+        (route) => false,
+      );
+    }
   }
 
   @override
@@ -449,7 +487,15 @@ class _HomeScreenState extends State<HomeScreen> {
         onTap: _switchCamera,
         child: _rotateIcon(orientation, const Icon(Icons.flip_camera_ios_outlined, color: Colors.white, size: 28)),
       ),
-      _rotateIcon(orientation, const Icon(Icons.settings_outlined, color: Colors.white, size: 28)),
+      GestureDetector(
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const SettingsScreen()),
+          );
+        },
+        child: _rotateIcon(orientation, const Icon(Icons.settings_outlined, color: Colors.white, size: 28)),
+      ),
     ];
   }
 
